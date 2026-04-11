@@ -1,0 +1,18 @@
+{
+  "name": "webhook-payload-check",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "wrangler dev",
+    "deploy": "wrangler deploy",
+    "seed": "node scripts/seed-users.js",
+    "seed:local": "node scripts/seed-users.js --local",
+    "db:init": "wrangler d1 execute webhook-payload-check --remote --file=schema.sql",
+    "db:init:local": "wrangler d1 execute webhook-payload-check --local --file=schema.sql",
+    "db:create": "wrangler d1 create webhook-payload-check"
+  },
+  "devDependencies": {
+    "wrangler": "^3.91.0"
+  }
+}

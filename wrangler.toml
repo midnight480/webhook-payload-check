@@ -1,0 +1,8 @@
+name = "webhook-payload-check"
+main = "src/index.js"
+compatibility_date = "2024-09-23"
+
+[[d1_databases]]
+binding = "DB"
+database_name = "webhook-payload-check"
+database_id = "3437ba20-187d-4fa6-899e-84d6f96781a6"
