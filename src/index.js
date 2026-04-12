@@ -143,6 +143,7 @@ async function route(req, env) {
     }
     const tokM = p.match(/^\/api\/tokens\/([^/]+)$/);
     if (tokM && m === 'DELETE') return deleteToken(env, tokM[1]);
+    if (tokM && m === 'PUT') return updateToken(req, env, tokM[1]);
 
     // Payloads
     if (p === '/api/payloads') {
@@ -279,6 +280,15 @@ async function deleteToken(env, id) {
   await env.DB.prepare('DELETE FROM payloads WHERE token_id=?').bind(id).run();
   await env.DB.prepare('DELETE FROM tokens WHERE id=?').bind(id).run();
   return jsonRes({ success: true });
+}
+
+async function updateToken(req, env, id) {
+  let name = '';
+  try { name = (await req.json()).name ?? ''; } catch {}
+  await env.DB.prepare('UPDATE tokens SET name=? WHERE id=?').bind(name, id).run();
+  const token = await env.DB.prepare('SELECT * FROM tokens WHERE id=?').bind(id).first();
+  if (!token) return jsonRes({ error: 'Not found' }, 404);
+  return jsonRes(token);
 }
 
 // ─────────────────────────────────────────────────────────────
@@ -813,6 +823,21 @@ function dashboardPage(url) {
     }
     .token-item:hover .token-delete { opacity: 1; }
     .token-delete:hover { background: rgba(248,113,113,0.1); }
+    .token-edit, .token-copy {
+      opacity: 0;
+      padding: 0.2rem;
+      background: none;
+      border: none;
+      color: var(--text-muted);
+      cursor: pointer;
+      border-radius: 4px;
+      display: flex;
+      transition: opacity 0.15s, background 0.15s;
+    }
+    .token-item:hover .token-edit,
+    .token-item:hover .token-copy { opacity: 1; }
+    .token-edit:hover { background: rgba(99,102,241,0.15); color: var(--accent-light); }
+    .token-copy:hover { background: rgba(99,102,241,0.15); color: var(--accent-light); }
 
     .empty-tokens {
       padding: 2rem 1rem;
@@ -1358,6 +1383,20 @@ function dashboardPage(url) {
     </div>
   </div>
 
+  <!-- Edit Token Modal -->
+  <div class="modal-overlay" id="edit-token-modal">
+    <div class="modal">
+      <h3>✏️ Webhook名を編集</h3>
+      <p>Webhook URLに設定する名前を変更します。</p>
+      <label for="edit-token-name">名前</label>
+      <input type="text" id="edit-token-name" placeholder="My Webhook" maxlength="100">
+      <div class="modal-actions">
+        <button class="btn-cancel" onclick="closeEditTokenModal()">キャンセル</button>
+        <button class="btn-create" onclick="saveEditToken()">保存する</button>
+      </div>
+    </div>
+  </div>
+
   <!-- Toast -->
   <div class="toast" id="toast"></div>
 
@@ -1370,6 +1409,7 @@ function dashboardPage(url) {
     let currentTokens = [];
     let autoRefreshTimer = null;
     let createdTokenUrl = '';
+    let editingTokenId = null;
 
     // ── Toast ──
     function showToast(msg, type = 'success') {
@@ -1407,6 +1447,12 @@ function dashboardPage(url) {
             <div class="token-url">/hook/\${t.id.slice(0,18)}...</div>
           </div>
           <span class="token-count">\${t.payload_count}</span>
+          <button class="token-copy" title="URLをコピー" onclick="event.stopPropagation(); copyTokenUrl('\${t.id}')">
+            <svg width="13" height="13" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>
+          </button>
+          <button class="token-edit" title="名前を編集" onclick="event.stopPropagation(); openEditTokenModal('\${t.id}', '\${escHtml(t.name || '')}')">
+            <svg width="13" height="13" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>
+          </button>
           <button class="token-delete" title="削除" onclick="event.stopPropagation(); deleteToken('\${t.id}', '\${escHtml(t.name || 'Unnamed')}')">
             <svg width="13" height="13" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/></svg>
           </button>
@@ -1476,6 +1522,39 @@ function dashboardPage(url) {
     function copyCreatedUrl() {
       navigator.clipboard.writeText(createdTokenUrl);
       showToast('URLをコピーしました！');
+    }
+
+    function copyTokenUrl(id) {
+      navigator.clipboard.writeText(ORIGIN + '/hook/' + id);
+      showToast('URLをコピーしました！');
+    }
+
+    function openEditTokenModal(id, name) {
+      editingTokenId = id;
+      document.getElementById('edit-token-name').value = name;
+      document.getElementById('edit-token-modal').classList.add('open');
+      setTimeout(() => document.getElementById('edit-token-name').focus(), 100);
+    }
+    function closeEditTokenModal() {
+      document.getElementById('edit-token-modal').classList.remove('open');
+      editingTokenId = null;
+    }
+    async function saveEditToken() {
+      if (!editingTokenId) return;
+      const name = document.getElementById('edit-token-name').value.trim();
+      try {
+        const res = await fetch('/api/tokens/' + editingTokenId, {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ name })
+        });
+        if (!res.ok) throw new Error();
+        closeEditTokenModal();
+        await loadTokens();
+        showToast('名前を更新しました');
+      } catch {
+        showToast('エラーが発生しました', 'error');
+      }
     }
 
     // ── Payloads ──
@@ -1676,9 +1755,13 @@ function dashboardPage(url) {
       if (e.key === 'Escape') {
         closeNewTokenModal();
         closeCreatedTokenModal();
+        closeEditTokenModal();
       }
       if (e.key === 'Enter' && document.getElementById('new-token-modal').classList.contains('open')) {
         createToken();
+      }
+      if (e.key === 'Enter' && document.getElementById('edit-token-modal').classList.contains('open')) {
+        saveEditToken();
       }
     });
 
