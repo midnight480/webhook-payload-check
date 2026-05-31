@@ -229,6 +229,14 @@ GitHub、Backlog、Slackなどのwebhook設定画面に上記URLを登録。
 - Cookie は `HttpOnly; Secure; SameSite=Lax` で保護
 - Webhook受信エンドポイントは **認証なし**（設計通り）
 - `.env` は `.gitignore` に含まれており、コミットされない
+- セキュリティヘッダー: `X-Content-Type-Options`, `X-Frame-Options`, `Referrer-Policy`
+- Content-Security-Policy でリソース読み込み元を制限
+- 全IDパラメータにUUID形式バリデーション
+- Webhookペイロードサイズ制限（512KB）
+- ダウンロードAPIのレコード数制限（10,000件）
+- ログインのタイミング攻撃対策
+- 期限切れセッションの自動クリーンアップ
+- エラーレスポンスで内部情報を非公開
 
 ## ライセンス
 
