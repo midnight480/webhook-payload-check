@@ -31,6 +31,10 @@ function uuid() {
   return crypto.randomUUID();
 }
 
+function isValidUUID(s) {
+  return /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(s);
+}
+
 async function sha256(text) {
   const buf = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(text));
   return Array.from(new Uint8Array(buf))
@@ -46,7 +50,7 @@ function getSessionToken(req) {
 
 async function getSession(env, req) {
   const token = getSessionToken(req);
-  if (!token) return null;
+  if (!token || !isValidUUID(token)) return null;
   return await env.DB.prepare(
     `SELECT * FROM sessions WHERE session_token=? AND expires_at > datetime('now')`
   ).bind(token).first();
@@ -152,7 +156,10 @@ async function route(req, env) {
       if (m === 'POST') return createToken(req, env);
     }
     const tokM = p.match(/^\/api\/tokens\/([^/]+)$/);
-    if (tokM && m === 'DELETE') return deleteToken(env, tokM[1]);
+    if (tokM && m === 'DELETE') {
+      if (!isValidUUID(tokM[1])) return jsonRes({ error: 'Invalid ID' }, 400);
+      return deleteToken(env, tokM[1]);
+    }
 
     // Payloads
     if (p === '/api/payloads') {
@@ -161,6 +168,7 @@ async function route(req, env) {
     }
     const payM = p.match(/^\/api\/payloads\/([^/]+)$/);
     if (payM) {
+      if (!isValidUUID(payM[1])) return jsonRes({ error: 'Invalid ID' }, 400);
       if (m === 'GET') return getPayload(env, payM[1]);
       if (m === 'DELETE') return deletePayload(env, payM[1]);
     }
@@ -178,6 +186,7 @@ async function route(req, env) {
 // ─────────────────────────────────────────────────────────────
 
 async function receiveWebhook(req, env, url, tokenId) {
+  if (!isValidUUID(tokenId)) return jsonRes({ error: 'Invalid token' }, 400);
   const token = await env.DB.prepare('SELECT id FROM tokens WHERE id=?').bind(tokenId).first();
   if (!token) return jsonRes({ error: 'Token not found' }, 404);
 
@@ -353,11 +362,11 @@ async function downloadJson(env, q) {
   const tokenId = q.get('token');
   const { results } = tokenId
     ? await env.DB.prepare(
-        'SELECT * FROM payloads WHERE token_id=? ORDER BY created_at DESC'
+        'SELECT * FROM payloads WHERE token_id=? ORDER BY created_at DESC LIMIT 10000'
       )
         .bind(tokenId)
         .all()
-    : await env.DB.prepare('SELECT * FROM payloads ORDER BY created_at DESC').all();
+    : await env.DB.prepare('SELECT * FROM payloads ORDER BY created_at DESC LIMIT 10000').all();
 
   const filename = tokenId ? `payloads-${tokenId.slice(0, 8)}.json` : 'payloads-all.json';
   return new Response(JSON.stringify(results, null, 2), {
@@ -372,11 +381,11 @@ async function downloadCsv(env, q) {
   const tokenId = q.get('token');
   const { results } = tokenId
     ? await env.DB.prepare(
-        'SELECT * FROM payloads WHERE token_id=? ORDER BY created_at DESC'
+        'SELECT * FROM payloads WHERE token_id=? ORDER BY created_at DESC LIMIT 10000'
       )
         .bind(tokenId)
         .all()
-    : await env.DB.prepare('SELECT * FROM payloads ORDER BY created_at DESC').all();
+    : await env.DB.prepare('SELECT * FROM payloads ORDER BY created_at DESC LIMIT 10000').all();
 
   const cols = ['id', 'token_id', 'method', 'url', 'ip', 'body', 'query', 'headers', 'created_at'];
   const esc = (v) => {
