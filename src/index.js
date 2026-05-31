@@ -36,6 +36,10 @@ async function sha256(text) {
     .join('');
 }
 
+async function hashPassword(password, salt) {
+  return sha256(salt + ':' + password);
+}
+
 function getSessionToken(req) {
   const cookie = req.headers.get('Cookie') || '';
   const m = cookie.match(/session=([^;]+)/);
@@ -213,7 +217,8 @@ async function handleLogin(req, env, url) {
     return loginPage('ユーザー名とパスワードを入力してください');
   }
 
-  const pwHash = await sha256(password);
+  const pepper = env.PASSWORD_PEPPER || '';
+  const pwHash = await hashPassword(password, pepper);
   const user = await env.DB.prepare(
     `SELECT id FROM users WHERE username=? AND password_hash=?`
   )
@@ -1630,7 +1635,7 @@ function dashboardPage(url) {
 
     // ── Helpers ──
     function escHtml(s) {
-      return String(s || '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+      return String(s || '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/'/g,'&#39;');
     }
 
     function escUrl(u) {

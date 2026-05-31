@@ -44,12 +44,17 @@ if (!username || !password) {
   process.exit(1);
 }
 
-// ── パスワードハッシュ (SHA-256) ──────────────────────────────────
-const passwordHash = createHash('sha256').update(password).digest('hex');
+// ── パスワードハッシュ (SHA-256 with pepper) ──────────────────────
+const pepper = env.PASSWORD_PEPPER || '';
+const passwordHash = createHash('sha256').update(pepper + ':' + password).digest('hex');
 
 // ── SQL 生成 ──────────────────────────────────────────────────────
 // ON CONFLICT で username が存在する場合は UPDATE
-const sql = `INSERT INTO users (username, password_hash) VALUES ('${username}', '${passwordHash}') ON CONFLICT(username) DO UPDATE SET password_hash='${passwordHash}', updated_at=datetime('now');`;
+// パラメータはエスケープしてSQLインジェクションを防止
+const escapeSql = (s) => s.replace(/'/g, "''");
+const safeUsername = escapeSql(username);
+const safeHash = escapeSql(passwordHash);
+const sql = `INSERT INTO users (username, password_hash) VALUES ('${safeUsername}', '${safeHash}') ON CONFLICT(username) DO UPDATE SET password_hash='${safeHash}', updated_at=datetime('now');`;
 
 // ── wrangler d1 execute 実行 ──────────────────────────────────────
 const isLocal = process.argv.includes('--local');
