@@ -108,6 +108,7 @@ export default {
       res.headers.set('X-Content-Type-Options', 'nosniff');
       res.headers.set('X-Frame-Options', 'DENY');
       res.headers.set('Referrer-Policy', 'strict-origin-when-cross-origin');
+      res.headers.set('Permissions-Policy', 'camera=(), microphone=(), geolocation=()');
       return res;
     } catch (e) {
       console.error(e);
@@ -426,6 +427,7 @@ function loginPage(error = null) {
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Webhook Payload Check — ログイン</title>
   <meta name="description" content="Webhook受信・Payload確認サービスへのログイン">
+  <meta name="robots" content="noindex, nofollow">
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
   <style>
@@ -1413,6 +1415,7 @@ function dashboardPage(url) {
     async function loadTokens() {
       try {
         const res = await fetch('/api/tokens');
+        if (!handleApiResponse(res)) return;
         if (!res.ok) return;
         currentTokens = await res.json();
         renderTokenList();
@@ -1512,6 +1515,7 @@ function dashboardPage(url) {
       if (!selectedTokenId) return;
       try {
         const res = await fetch('/api/payloads?token=' + selectedTokenId);
+        if (!handleApiResponse(res)) return;
         if (!res.ok) return;
         const payloads = await res.json();
 
@@ -1698,6 +1702,18 @@ function dashboardPage(url) {
     }
     function stopAutoRefresh() {
       if (autoRefreshTimer) clearInterval(autoRefreshTimer);
+    }
+
+    // ページ非表示時はポーリングを停止
+    document.addEventListener('visibilitychange', () => {
+      if (document.hidden) stopAutoRefresh();
+      else startAutoRefresh();
+    });
+
+    // API 401時にログインページへリダイレクト
+    function handleApiResponse(res) {
+      if (res.status === 401) { window.location.href = '/'; return null; }
+      return res;
     }
 
     // ── Modal keyboard ──
