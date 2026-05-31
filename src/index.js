@@ -94,10 +94,15 @@ async function requireAuthApi(req, env) {
 export default {
   async fetch(req, env) {
     try {
-      return await route(req, env);
+      const res = await route(req, env);
+      // セキュリティヘッダーを全レスポンスに付与
+      res.headers.set('X-Content-Type-Options', 'nosniff');
+      res.headers.set('X-Frame-Options', 'DENY');
+      res.headers.set('Referrer-Policy', 'strict-origin-when-cross-origin');
+      return res;
     } catch (e) {
       console.error(e);
-      return jsonRes({ error: e.message }, 500);
+      return jsonRes({ error: 'Internal Server Error' }, 500);
     }
   },
 };
@@ -233,6 +238,9 @@ async function handleLogin(req, env, url) {
   )
     .bind(sessionToken, username, expiresAt)
     .run();
+
+  // 期限切れセッションをクリーンアップ
+  await env.DB.prepare(`DELETE FROM sessions WHERE expires_at <= datetime('now')`).run();
 
   return redirect('/dashboard', {
     'Set-Cookie': `${COOKIE_NAME}=${sessionToken}; HttpOnly; Secure; SameSite=Lax; Path=/; Max-Age=${SESSION_HOURS * 3600}`,
@@ -1630,7 +1638,7 @@ function dashboardPage(url) {
 
     // ── Helpers ──
     function escHtml(s) {
-      return String(s || '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+      return String(s || '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/'/g,'&#39;');
     }
 
     function escUrl(u) {
