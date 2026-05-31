@@ -20,6 +20,8 @@
 
 const COOKIE_NAME = 'session';
 const SESSION_HOURS = 24;
+const MAX_PAYLOAD_SIZE = 1024 * 512; // 512KB
+const MAX_TOKEN_NAME_LENGTH = 100;
 
 // ─────────────────────────────────────────────────────────────
 //  Utils
@@ -60,7 +62,10 @@ function jsonRes(data, status = 200) {
 function htmlRes(content, status = 200) {
   return new Response(content, {
     status,
-    headers: { 'Content-Type': 'text/html; charset=utf-8' },
+    headers: {
+      'Content-Type': 'text/html; charset=utf-8',
+      'Content-Security-Policy': "default-src 'self'; script-src 'unsafe-inline'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src https://fonts.gstatic.com; connect-src 'self'; img-src 'self' data:; frame-ancestors 'none'",
+    },
   });
 }
 
@@ -180,6 +185,9 @@ async function receiveWebhook(req, env, url, tokenId) {
   for (const [k, v] of req.headers.entries()) headers[k] = v;
 
   const body = await req.text().catch(() => '');
+  if (body.length > MAX_PAYLOAD_SIZE) {
+    return jsonRes({ error: 'Payload too large' }, 413);
+  }
 
   const query = {};
   for (const [k, v] of url.searchParams.entries()) query[k] = v;
@@ -220,12 +228,15 @@ async function handleLogin(req, env, url) {
 
   const pwHash = await sha256(password);
   const user = await env.DB.prepare(
-    `SELECT id FROM users WHERE username=? AND password_hash=?`
+    `SELECT id, password_hash FROM users WHERE username=?`
   )
-    .bind(username, pwHash)
+    .bind(username)
     .first();
 
-  if (!user) return loginPage('ユーザー名またはパスワードが正しくありません');
+  // タイミング攻撃対策: ユーザー不在でも同じ処理時間にする
+  const storedHash = user ? user.password_hash : '0'.repeat(64);
+  const hashMatch = pwHash === storedHash;
+  if (!user || !hashMatch) return loginPage('ユーザー名またはパスワードが正しくありません');
 
   const sessionToken = uuid();
   const expiresAt = new Date(Date.now() + SESSION_HOURS * 3_600_000)
@@ -277,6 +288,7 @@ async function createToken(req, env) {
   try {
     name = (await req.json()).name || '';
   } catch {}
+  name = name.slice(0, MAX_TOKEN_NAME_LENGTH);
   const id = uuid();
   await env.DB.prepare('INSERT INTO tokens (id, name) VALUES (?,?)').bind(id, name).run();
   const token = await env.DB.prepare('SELECT * FROM tokens WHERE id=?').bind(id).first();
@@ -295,8 +307,8 @@ async function deleteToken(env, id) {
 
 async function getPayloads(env, q) {
   const tokenId = q.get('token');
-  const limit = Math.min(parseInt(q.get('limit') || '200'), 500);
-  const offset = parseInt(q.get('offset') || '0');
+  const limit = Math.min(Math.max(parseInt(q.get('limit') || '200') || 200, 1), 500);
+  const offset = Math.max(parseInt(q.get('offset') || '0') || 0, 0);
 
   const { results } = tokenId
     ? await env.DB.prepare(
